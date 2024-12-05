@@ -1,0 +1,8 @@
+
+      const base64EncodedImage = imageAnalysis.toString('base64');
+      const filePart = { 
+        inline_data: { 
+          data: base64EncodedImage, 
+          mimeType: 'image/jpeg' 
+        } 
+      };
