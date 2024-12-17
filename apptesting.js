@@ -2,11 +2,13 @@ const express = require("express");
 const body_parser = require("body-parser");
 const app = express().use(body_parser.json());
 const axios = require("axios");
+const path = require("path");
+const fs = require("fs").promises;
+
 
 const port = 8000;
-// const { keyValuePairs } = require("./config");
-// const accesstoken = keyValuePairs[0].value;
-const accesstoken = ""
+const { keyValuePairs } = require("./config");
+const accesstoken = keyValuePairs[0].value;
 
 app.get("/webhook", (req, res) => {
   const mode = req.query["hub.mode"];
@@ -26,7 +28,6 @@ app.get("/webhook", (req, res) => {
 });
 
 const processedMessages = new Set();
-
 app.post("/webhook", async (req, res) => {
   let body_param = req.body;
   res.sendStatus(200);
@@ -39,42 +40,96 @@ app.post("/webhook", async (req, res) => {
       body_param.entry[0].changes[0].value.messages[0]
     ) {
       const message = body_param.entry[0].changes[0].value.messages[0];
-
-     // const msg_body = body_param.entry[0].changes[0].value.messages[0].text.body;
       const phone_no_id = body_param.entry[0].changes[0].value.metadata.phone_number_id;
       const messageId = message.id;
       const from = message.from;
-     // console.log("Message: " + msg_body);
-      console.log("Phone Number ID: " + phone_no_id);
-      console.log("Message ID: " + messageId);
+     // console.log("From: " + from);
+     // console.log("Message ID: " + messageId);
 
       let response_message = "Hello! How can I help you?";
-
-      // Check if the message has already been processed
       if (processedMessages.has(messageId)) {
         return res.sendStatus(200);
       }
       processedMessages.add(messageId);
+      let msg_type = "text";
 
-      // Identify the message type
+      // Identify the message type and msg
       if (message.text) {
-        console.log("Text Message: " + message.text.body);
-        response_message = "You sent a text message.";
-      } else if (message.image) {
-        console.log("Image Message: " + message.image.id);
-        response_message = "You sent an image.";
-      } else if (message.document) {
-        console.log("Document Message: " + message.document.id);
-        response_message = "You sent a document.";
-      } else if (message.video) {
-        console.log("Video Message: " + message.video.id);
-        response_message = "You sent a video.";
-      } else {
-        console.log("Unknown Message Type");
-        response_message = "I'm not sure what you sent.";
+        msg_type = "text";
+        const msg_body_text = message.text.body;
+        console.log("Msg type:", msg_type, "\nMsg body:", msg_body_text);
       }
 
-      // Send a message without tagging the incoming message
+      else if (message.image) {
+        msg_type = "image";
+        const msg_body_imageId = message.image.id;
+        //console.log("Msg type:", msg_type, "Msg body:", msg_body_imageId);
+
+
+        // Fetch the image and convert it to Base64
+        try {
+          // Fetch image download URL with authentication
+          const mediaMetadataResponse = await axios({
+            method: "GET",
+            url: `https://graph.facebook.com/v19.0/${message.image.id}`,
+            headers: {
+              Authorization: `Bearer ${accesstoken}`
+            }
+          });
+          const downloadUrl = mediaMetadataResponse.data.url;
+
+
+          
+       // Download the image with proper authentication
+          const imageResponse = await axios({
+            method: "GET",
+            url: downloadUrl,
+            headers: {
+              Authorization: `Bearer ${accesstoken}`,
+              'User-Agent': 'WhatsApp-Webhook-Downloader'
+            },
+            responseType: 'arraybuffer'
+          });
+
+          const downloadDir = path.join(__dirname, 'downloads');
+          await fs.mkdir(downloadDir, { recursive: true });
+
+
+          // Generate unique filename
+          const filename = `whatsapp_image_${message.image.id}.jpg`;
+          const filePath = path.join(downloadDir, filename);
+
+          // Write the file
+          await fs.writeFile(filePath, imageResponse.data);
+          // console.log(`Image saved: ${filePath}`);
+          // console.log(`Image Metadata:`, {
+          //   id: message.image.id,
+          //   mime_type: message.image.mime_type,
+          //   file_size: imageResponse.data.length
+          // });
+
+
+
+
+       // Convert the image to Base64
+          const base64EncodedImage = Buffer.from(imageResponse.data, "binary").toString("base64");
+          const filePart = {
+            inline_data: {
+              data: base64EncodedImage,
+              mimeType: 'image/jpeg',
+            },
+          };
+
+
+        // console.log(filePart);
+
+        } catch (error) {
+          console.error("Error fetching or converting image:", error.message);
+        }
+      }
+
+
+      // to send msg
       axios({
         method: "POST",
         url: `https://graph.facebook.com/v13.0/${phone_no_id}/messages?access_token=${accesstoken}`,
@@ -82,8 +137,8 @@ app.post("/webhook", async (req, res) => {
           messaging_product: "whatsapp",
           to: from,
           text: {
-            body: response_message, 
-          }
+            body: response_message,
+          },
         },
         headers: {
           "Content-Type": "application/json",
@@ -104,10 +159,9 @@ app.post("/webhook", async (req, res) => {
   }
 });
 
+
+
 // Start the server
 app.listen(port, () => {
   console.log("Webhook is listening on port 8000");
 });
-
-
-

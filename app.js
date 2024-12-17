@@ -2,6 +2,9 @@ const express = require("express");
 const body_parser = require("body-parser");
 const app = express().use(body_parser.json());
 const axios = require("axios");
+const path = require("path");
+const fs = require("fs").promises;
+
 
 const port = 8000;
 const { keyValuePairs } = require("./config");
@@ -40,42 +43,60 @@ app.post("/webhook", async (req, res) => {
       const phone_no_id = body_param.entry[0].changes[0].value.metadata.phone_number_id;
       const messageId = message.id;
       const from = message.from;
-      console.log("From: " + from);
-      console.log("Message ID: " + messageId);
+     // console.log("From: " + from);
+     // console.log("Message ID: " + messageId);
 
       let response_message = "Hello! How can I help you?";
       if (processedMessages.has(messageId)) {
         return res.sendStatus(200);
       }
       processedMessages.add(messageId);
-      let msg_type;
-      
+      let msg_type = "text";
+
       // Identify the message type and msg
       if (message.text) {
         msg_type = "text";
         const msg_body_text = message.text.body;
         console.log("Msg type:", msg_type, "\nMsg body:", msg_body_text);
       }
-      
-      
+
       else if (message.image) {
         msg_type = "image";
         const msg_body_imageId = message.image.id;
-        console.log("Msg type:", msg_type, "Msg body:", msg_body_imageId);
+        //console.log("Msg type:", msg_type, "Msg body:", msg_body_imageId);
 
 
-         // Fetch the image and convert it to Base64
-         try {
+        // Fetch the image and convert it to Base64
+        try {
+          // Fetch image download URL with authentication
+          const mediaMetadataResponse = await axios({
+            method: "GET",
+            url: `https://graph.facebook.com/v19.0/${message.image.id}`,
+            headers: {
+              Authorization: `Bearer ${accesstoken}`
+            }
+          });
+          const downloadUrl = mediaMetadataResponse.data.url;
+
+
+          
+       // Download the image with proper authentication
           const imageResponse = await axios({
             method: "GET",
-            url: `https://graph.facebook.com/v13.0/${msg_body_imageId}/?access_token=${accesstoken}`,
-            responseType: "arraybuffer",
+            url: downloadUrl,
             headers: {
               Authorization: `Bearer ${accesstoken}`,
+              'User-Agent': 'WhatsApp-Webhook-Downloader'
             },
+            responseType: 'arraybuffer'
           });
 
-          // Convert the image to Base64
+          
+
+
+
+
+       // Convert the image to Base64
           const base64EncodedImage = Buffer.from(imageResponse.data, "binary").toString("base64");
           const filePart = {
             inline_data: {
@@ -83,13 +104,15 @@ app.post("/webhook", async (req, res) => {
               mimeType: 'image/jpeg',
             },
           };
-          console.log("File part created:",  typeof filePart);
+
+
+        // console.log(filePart);
 
         } catch (error) {
           console.error("Error fetching or converting image:", error.message);
         }
       }
-      
+
 
       // to send msg
       axios({
